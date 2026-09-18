@@ -192,7 +192,3 @@ buttercup_project/
 - [ ] Add automated tests for the grading and refine nodes
 - [ ] Support multi-video sessions (chat across more than one video at once)
 
-## License
-
-Add a license of your choice (MIT is a common default for portfolio
-projects) before making the repository public.
