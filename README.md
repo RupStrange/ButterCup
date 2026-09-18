@@ -1,8 +1,3 @@
-Absolutely 👍 For a GitHub portfolio project, I'd make it a little more **professional and visually polished** rather than just adding lots of emojis.
-
-Below is a **GitHub-ready `README.md`**. You can copy everything inside the code block directly into your `README.md`.
-
-````markdown
 # 🧈 ButterCup — YouTube AI Analyst with Corrective RAG
 
 <p align="center">
