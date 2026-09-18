@@ -1,88 +1,198 @@
-# ButterCup — YouTube AI Analyst (with Corrective RAG chat)
+# ButterCup — YouTube AI Analyst with Corrective RAG
 
-Turns a YouTube video into a summary + a chat interface. The chat tab is now
-backed by **Corrective RAG (CRAG)**: every answer is graded against the
-retrieved transcript context, and the graph automatically falls back to a
-live web search when the video doesn't actually cover what was asked.
+Turn any YouTube video into a clean summary and an ask-anything chat
+interface. Answers are grounded in the video's own transcript first, graded
+for relevance by an LLM, and automatically backed by a live web search
+whenever the video itself doesn't cover what was asked — a technique known
+as **Corrective RAG (CRAG)**.
 
-## What changed from the original script
+## Table of Contents
 
-The original `utube_chatbot.py` was one 460-line file mixing Streamlit
-widgets, prompts, LLM calls, and progress bars together, and its chat tab
-was a plain `retriever -> prompt -> LLM` chain with no self-correction.
+- [Features](#features)
+- [How It Works](#how-it-works)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Getting Started](#getting-started)
+- [Configuration](#configuration)
+- [Project Structure](#project-structure)
+- [Design Notes](#design-notes)
+- [Roadmap](#roadmap)
 
-This version:
+## Features
 
-1. **Adds Corrective RAG**, adapted from your `6_ambiguous.ipynb` notebook,
-   as the chat engine:
-   - `retrieve` → pull chunks from the video's FAISS index
-   - `eval_each_doc` → an LLM grades every chunk's relevance (0–1)
-   - verdict: `CORRECT` (skip web) / `INCORRECT` / `AMBIGUOUS` (rewrite query → Tavily web search)
-   - `refine` → decompose the trusted context into sentences, keep only the ones an LLM judges relevant
-   - `generate` → answer from the refined context, aware of prior chat turns
-   - The chat UI shows a badge under each answer: 🟢 from the video, 🌐 from
-     the web, or 🟡 both — so it's visible when CRAG kicks in.
-   - Swapped the notebook's `ChatOpenAI` for `ChatGroq`, to match the app's
-     existing model, and reused the app's own FAISS retriever as CRAG's
-     internal knowledge source instead of PDFs.
+- **Paste a link, get a summary** — fetches the transcript, translates/cleans
+  it, and generates a structured, fact-checked summary.
+- **Chat with the video** — ask follow-up questions and get answers grounded
+  in what was actually said.
+- **Self-correcting retrieval (CRAG)** — every retrieved chunk is graded for
+  relevance before it's allowed to inform an answer.
+- **Automatic web fallback** — if the video doesn't cover the question, the
+  app rewrites the query and pulls in a live Tavily web search instead of
+  hallucinating or refusing to answer.
+- **Source transparency** — each answer is tagged so you can see where it
+  came from: 🟢 video only, 🌐 web only, or 🟡 both.
+- **Conversation memory** — follow-up questions are answered with awareness
+  of the last several turns, not in isolation.
 
-2. **Splits the single script into a package** organized by responsibility:
+## How It Works
 
 ```
-buttercup_project/
-├── app.py                       # Streamlit UI only — no prompts/LLM logic
-├── requirements.txt
-├── .streamlit/secrets.toml.example
-└── buttercup/
-    ├── config.py                 # every tunable constant + secret lookup, in one place
-    ├── schemas.py                 # pydantic structured-output models + CRAGState
-    ├── youtube_service.py         # URL parsing, video metadata, transcript fetch (no Streamlit)
-    ├── transcript_processor.py    # translation + cleanup (progress via callback, not st.progress)
-    ├── summarizer.py               # fact extraction + summary generation
-    ├── vectorstore_builder.py      # FAISS retriever construction
-    ├── memory_store.py             # conversation memory wrapper
-    └── crag/                       # the Corrective RAG graph, one node per file
-        ├── grading.py               # retrieve + relevance-eval nodes
-        ├── refine.py                 # sentence decomposition + filtering
-        ├── web_search.py             # query rewrite + Tavily search nodes
-        ├── generate.py                # history-aware answer generation
-        └── graph.py                   # wires nodes into a compiled StateGraph
+User question
+     │
+     ▼
+┌─────────────┐      ┌───────────────────┐
+│  retrieve   │ ───▶ │  eval_each_doc     │  LLM grades every chunk 0–1
+└─────────────┘      └─────────┬─────────┘
+                                │
+                     ┌──────────┴──────────┐
+                     ▼          ▼          ▼
+                 CORRECT   AMBIGUOUS   INCORRECT
+                     │          │          │
+                     │          ▼          ▼
+                     │   rewrite query → Tavily web search
+                     │          │          │
+                     └────┬─────┴──────────┘
+                          ▼
+                    ┌─────────────┐
+                    │   refine    │  keep only relevant sentences
+                    └──────┬──────┘
+                           ▼
+                    ┌─────────────┐
+                    │  generate   │  history-aware final answer
+                    └─────────────┘
 ```
 
-Every non-`app.py` module is plain Python with no Streamlit import (except
-`config.py`'s optional `st.secrets` read), so the retrieval, grading, and
-generation logic can be unit tested or reused in a CLI/API without spinning
-up a UI. `app.py` is the only file that touches `st.*` widgets.
+1. **`retrieve`** — pulls the top-k chunks from the video's FAISS index
+   (MMR search for diversity, not just raw similarity).
+2. **`eval_each_doc`** — an LLM independently scores each chunk's relevance
+   to the question.
+3. **Verdict** — based on two thresholds (`upper` / `lower`), the graph
+   decides whether the retrieved context is `CORRECT` (trust it), `AMBIGUOUS`
+   (use it *and* supplement with web search), or `INCORRECT` (discard it and
+   search the web instead).
+4. **`refine`** — trusted context is decomposed into individual sentences,
+   and an LLM keeps only the ones actually relevant to the question, so the
+   final prompt isn't diluted with tangential transcript text.
+5. **`generate`** — the answer is produced from the refined context, aware
+   of prior turns in the conversation.
 
-## Setup
+## Architecture
+
+The project started as a single 460-line Streamlit script that mixed UI
+code, prompts, LLM calls, and progress bars together. It's now split by
+responsibility so the retrieval/grading/generation logic has no dependency
+on Streamlit and can be tested, reused in a CLI, or wrapped in an API
+without touching the UI layer.
+
+Only `app.py` imports `streamlit`; every other module is plain Python.
+
+## Tech Stack
+
+| Layer            | Choice                                              |
+|-------------------|------------------------------------------------------|
+| UI                | Streamlit                                            |
+| LLM               | Groq (`langchain-groq`)                              |
+| Orchestration     | LangGraph (compiled `StateGraph` for the CRAG flow)  |
+| Vector store      | FAISS                                                |
+| Embeddings        | `sentence-transformers` (`BAAI/bge-small-en-v1.5`)   |
+| Web search        | Tavily                                               |
+| Transcript source | `youtube-transcript-api`                             |
+| Structured output | Pydantic v2 (`with_structured_output`)               |
+
+## Getting Started
+
+### Prerequisites
+
+- Python 3.10+
+- A [Groq API key](https://console.groq.com)
+- A [Tavily API key](https://tavily.com)
+
+### Installation
 
 ```bash
+git clone https://github.com/<your-username>/ButterCup.git
+cd ButterCup
 pip install -r requirements.txt
+```
+
+### Configure secrets
+
+```bash
 cp .streamlit/secrets.toml.example .streamlit/secrets.toml
-# fill in GROQ_API_KEY and TAVILY_API_KEY
+```
+
+Then edit `.streamlit/secrets.toml`:
+
+```toml
+GROQ_API_KEY = "your-groq-api-key-here"
+TAVILY_API_KEY = "your-tavily-api-key-here"
+```
+
+> `.streamlit/secrets.toml` and `buttercup/secrets.toml` are already listed
+> in `.gitignore` — never commit real keys.
+
+### Run it
+
+```bash
 streamlit run app.py
 ```
 
-## Tuning CRAG
+## Configuration
 
-Grading thresholds and all other knobs live in `buttercup/config.py` (or set
-via env vars `CRAG_UPPER_THRESHOLD` / `CRAG_LOWER_THRESHOLD`):
+All tunables live in `buttercup/config.py`, with the CRAG thresholds
+overridable via environment variables:
 
-- `crag_upper_threshold` (default `0.7`) — a chunk above this alone justifies `CORRECT`
-- `crag_lower_threshold` (default `0.3`) — chunks below this are treated as irrelevant
+| Setting                 | Default | Description                                                        |
+|--------------------------|---------|----------------------------------------------------------------------|
+| `CRAG_UPPER_THRESHOLD`  | `0.7`   | A chunk scoring above this alone justifies a `CORRECT` verdict.     |
+| `CRAG_LOWER_THRESHOLD`  | `0.3`   | Chunks scoring below this are treated as irrelevant.                |
+| `retriever_k`           | `4`     | Number of chunks retrieved per question.                            |
+| `memory_max_messages`   | `12`    | Number of past chat messages kept as conversational context.        |
 
-## Notes / things worth knowing before you deploy this
+## Project Structure
 
-- **Latency**: CRAG grades every retrieved chunk with a separate LLM call,
-  then filters every refined sentence with another. With `k=4` that's easily
-  6–10+ LLM calls per question. Fine for a demo; for production you may want
-  to batch the grading calls (`chain.batch(...)`) or grade chunks concatenated
-  in one call instead of one-by-one.
-- **Structured output**: `with_structured_output` needs a Groq model that
-  supports tool/function calling. `meta-llama/llama-4-scout-17b-16e-instruct`
-  (the app's existing model) supports this; if you swap models, confirm the
-  new one does too.
+```
+buttercup_project/
+├── app.py                      # Streamlit UI only — no prompts/LLM logic
+├── requirements.txt
+├── .streamlit/secrets.toml.example
+└── buttercup/
+    ├── config.py                # every tunable constant + secret lookup
+    ├── schemas.py                # pydantic structured-output models + CRAGState
+    ├── youtube_service.py        # URL parsing, video metadata, transcript fetch
+    ├── transcript_processor.py   # translation + cleanup
+    ├── summarizer.py             # fact extraction + summary generation
+    ├── vectorstore_builder.py    # FAISS retriever construction
+    ├── memory_store.py           # conversation memory wrapper
+    └── crag/                     # the Corrective RAG graph, one node per file
+        ├── grading.py             # retrieve + relevance-eval nodes
+        ├── refine.py              # sentence decomposition + filtering
+        ├── web_search.py          # query rewrite + Tavily search nodes
+        ├── generate.py            # history-aware answer generation
+        └── graph.py               # wires nodes into a compiled StateGraph
+```
+
+## Design Notes
+
+- **Latency trade-off**: CRAG grades every retrieved chunk with a separate
+  LLM call, then filters every refined sentence with another. With `k=4`
+  that's easily 6–10+ LLM calls per question — fine for a demo, but a
+  production deployment would benefit from batching grading calls
+  (`chain.batch(...)`) or grading concatenated chunks in one call.
+- **Structured output**: `with_structured_output` requires a Groq model
+  that supports tool/function calling.
 - **Tavily**: `TavilySearchResults` is community-maintained and slated for
-  deprecation upstream in favor of `langchain-tavily`. It's kept here to
-  match your notebook 1:1; swapping is a one-line change in
-  `buttercup/crag/web_search.py`.
+  deprecation upstream in favor of `langchain-tavily`; swapping is a
+  one-line change in `buttercup/crag/web_search.py`.
+
+## Roadmap
+
+- [ ] Batch/parallelize CRAG grading calls to cut per-question latency
+- [ ] Swap `TavilySearchResults` for `langchain-tavily`
+- [ ] Add automated tests for the grading and refine nodes
+- [ ] Support multi-video sessions (chat across more than one video at once)
+
+## License
+
+Add a license of your choice (MIT is a common default for portfolio
+projects) before making the repository public.
