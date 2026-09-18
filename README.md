@@ -1,194 +1,716 @@
-# ButterCup — YouTube AI Analyst with Corrective RAG
+Absolutely 👍 For a GitHub portfolio project, I'd make it a little more **professional and visually polished** rather than just adding lots of emojis.
 
-Turn any YouTube video into a clean summary and an ask-anything chat
-interface. Answers are grounded in the video's own transcript first, graded
-for relevance by an LLM, and automatically backed by a live web search
-whenever the video itself doesn't cover what was asked — a technique known
-as **Corrective RAG (CRAG)**.
+Below is a **GitHub-ready `README.md`**. You can copy everything inside the code block directly into your `README.md`.
 
-## Table of Contents
+````markdown
+# 🧈 ButterCup — YouTube AI Analyst with Corrective RAG
 
-- [Features](#features)
-- [How It Works](#how-it-works)
-- [Architecture](#architecture)
-- [Tech Stack](#tech-stack)
-- [Getting Started](#getting-started)
-- [Configuration](#configuration)
-- [Project Structure](#project-structure)
-- [Design Notes](#design-notes)
-- [Roadmap](#roadmap)
+<p align="center">
+  <b>🎥 Turn any YouTube video into a summary and an intelligent ask-anything assistant.</b>
+</p>
 
-## Features
+<p align="center">
+  <i>
+    ButterCup combines YouTube transcripts, FAISS retrieval, LLM-based relevance grading,
+    context refinement, and live web search using a Corrective RAG (CRAG) pipeline.
+  </i>
+</p>
 
-- **Paste a link, get a summary** — fetches the transcript, translates/cleans
-  it, and generates a structured, fact-checked summary.
-- **Chat with the video** — ask follow-up questions and get answers grounded
-  in what was actually said.
-- **Self-correcting retrieval (CRAG)** — every retrieved chunk is graded for
-  relevance before it's allowed to inform an answer.
-- **Automatic web fallback** — if the video doesn't cover the question, the
-  app rewrites the query and pulls in a live Tavily web search instead of
-  hallucinating or refusing to answer.
-- **Source transparency** — each answer is tagged so you can see where it
-  came from: 🟢 video only, 🌐 web only, or 🟡 both.
-- **Conversation memory** — follow-up questions are answered with awareness
-  of the last several turns, not in isolation.
+<p align="center">
 
-## How It Works
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)
+![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B?logo=streamlit&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-Orchestration-orange)
+![FAISS](https://img.shields.io/badge/FAISS-Vector%20Search-green)
+![Groq](https://img.shields.io/badge/Groq-LLM-black)
+![Tavily](https://img.shields.io/badge/Tavily-Web%20Search-purple)
 
+</p>
+
+---
+
+## 📌 Overview
+
+**ButterCup** is an AI-powered YouTube analyst that allows users to paste a YouTube URL, generate a structured summary, and ask questions about the video.
+
+Unlike a basic RAG chatbot, ButterCup evaluates whether the retrieved transcript actually contains information relevant to the user's question.
+
+If the retrieved information is:
+
+- 🟢 **Relevant** → use the video context
+- 🟡 **Ambiguous** → combine video context with web search
+- 🔴 **Irrelevant** → discard the context and search the web
+
+This approach is implemented using **Corrective RAG (CRAG)** with **LangGraph**.
+
+---
+
+## ✨ Features
+
+### 🎬 YouTube Video Analysis
+
+Paste a YouTube URL and ButterCup:
+
+- 🔗 Extracts the video ID
+- 🎥 Fetches video metadata
+- 📝 Retrieves the transcript
+- 🌍 Handles transcript translation/cleanup
+- 🧠 Generates a structured summary
+
+---
+
+### 💬 Ask Anything About the Video
+
+Users can ask follow-up questions such as:
+
+> "What was the main argument of the speaker?"
+
+> "What examples were mentioned?"
+
+> "What are the disadvantages discussed in the video?"
+
+Answers are grounded in the video's transcript whenever relevant information is available.
+
+---
+
+### 🧠 Corrective RAG (CRAG)
+
+ButterCup doesn't blindly trust retrieved documents.
+
+Every retrieved transcript chunk is independently evaluated by an LLM for relevance.
+
+This allows the system to detect when retrieval is:
+
+```text
+        Useful
+          │
+          ▼
+      CORRECT
+          │
+          │
+   ┌──────┴──────┐
+   ▼             ▼
+Answer       Refine Context
+
+
+       Uncertain
+          │
+          ▼
+      AMBIGUOUS
+          │
+          ▼
+     Web Search
+          │
+          ▼
+   Video + Web
+
+
+      Irrelevant
+          │
+          ▼
+     INCORRECT
+          │
+          ▼
+     Web Search
+````
+
+---
+
+### 🌐 Automatic Web Fallback
+
+If the video's transcript doesn't contain enough information to answer the question, ButterCup automatically:
+
+1. 🔄 Rewrites the user's query
+2. 🌐 Performs a live Tavily search
+3. 📄 Retrieves relevant web information
+4. 🧠 Uses the results to generate the answer
+
+This allows the application to distinguish between:
+
+> **"The video doesn't discuss this."**
+
+and
+
+> **"The information exists elsewhere on the web."**
+
+---
+
+### 🔎 Source Transparency
+
+Each answer indicates its information source:
+
+| Indicator | Source      |
+| --------- | ----------- |
+| 🟢        | Video only  |
+| 🌐        | Web only    |
+| 🟡        | Video + Web |
+
+---
+
+### 🧠 Conversation Memory
+
+ButterCup maintains recent conversation history so follow-up questions can use previous turns as context.
+
+For example:
+
+```text
+User: What is RAG?
+
+Assistant: RAG stands for Retrieval-Augmented Generation...
+
+User: Why did the speaker prefer it?
+
+Assistant: Based on the previous context...
 ```
-User question
-     │
-     ▼
-┌─────────────┐      ┌───────────────────┐
-│  retrieve   │ ───▶ │  eval_each_doc     │  LLM grades every chunk 0–1
-└─────────────┘      └─────────┬─────────┘
+
+---
+
+# ⚙️ How It Works
+
+```text
+                         👤 USER QUESTION
                                 │
-                     ┌──────────┴──────────┐
-                     ▼          ▼          ▼
-                 CORRECT   AMBIGUOUS   INCORRECT
-                     │          │          │
-                     │          ▼          ▼
-                     │   rewrite query → Tavily web search
-                     │          │          │
-                     └────┬─────┴──────────┘
-                          ▼
-                    ┌─────────────┐
-                    │   refine    │  keep only relevant sentences
-                    └──────┬──────┘
-                           ▼
-                    ┌─────────────┐
-                    │  generate   │  history-aware final answer
-                    └─────────────┘
+                                ▼
+                     ┌────────────────────┐
+                     │     🔍 RETRIEVE    │
+                     │                    │
+                     │  FAISS + MMR Search │
+                     └──────────┬─────────┘
+                                │
+                                ▼
+                  ┌──────────────────────────┐
+                  │    🧠 EVALUATE DOCS      │
+                  │                          │
+                  │ LLM relevance scoring    │
+                  │       0.0 → 1.0          │
+                  └────────────┬─────────────┘
+                               │
+              ┌────────────────┼────────────────┐
+              │                │                │
+              ▼                ▼                ▼
+        🟢 CORRECT        🟡 AMBIGUOUS       🔴 INCORRECT
+              │                │                │
+              │                ▼                ▼
+              │          🔄 Query Rewrite   🔄 Query Rewrite
+              │                │                │
+              │                └──────┬─────────┘
+              │                       ▼
+              │               🌐 TAVILY SEARCH
+              │                       │
+              └───────────────┬───────┘
+                              ▼
+                    ┌────────────────────┐
+                    │      ✂️ REFINE     │
+                    │                    │
+                    │ Keep only relevant │
+                    │ transcript content │
+                    └──────────┬─────────┘
+                               │
+                               ▼
+                    ┌────────────────────┐
+                    │     ✨ GENERATE    │
+                    │                    │
+                    │ History-aware final │
+                    │      response      │
+                    └────────────────────┘
 ```
 
-1. **`retrieve`** — pulls the top-k chunks from the video's FAISS index
-   (MMR search for diversity, not just raw similarity).
-2. **`eval_each_doc`** — an LLM independently scores each chunk's relevance
-   to the question.
-3. **Verdict** — based on two thresholds (`upper` / `lower`), the graph
-   decides whether the retrieved context is `CORRECT` (trust it), `AMBIGUOUS`
-   (use it *and* supplement with web search), or `INCORRECT` (discard it and
-   search the web instead).
-4. **`refine`** — trusted context is decomposed into individual sentences,
-   and an LLM keeps only the ones actually relevant to the question, so the
-   final prompt isn't diluted with tangential transcript text.
-5. **`generate`** — the answer is produced from the refined context, aware
-   of prior turns in the conversation.
+---
 
-## Architecture
+## 🔬 CRAG Pipeline
 
-The project started as a single 460-line Streamlit script that mixed UI
-code, prompts, LLM calls, and progress bars together. It's now split by
-responsibility so the retrieval/grading/generation logic has no dependency
-on Streamlit and can be tested, reused in a CLI, or wrapped in an API
-without touching the UI layer.
+### 1️⃣ Retrieve
 
-Only `app.py` imports `streamlit`; every other module is plain Python.
+The system retrieves the top-k chunks from the video's FAISS vector index.
 
-## Tech Stack
+ButterCup uses **MMR (Maximal Marginal Relevance)** to improve diversity between retrieved chunks rather than relying only on similarity scores.
 
-| Layer            | Choice                                              |
-|-------------------|------------------------------------------------------|
-| UI                | Streamlit                                            |
-| LLM               | Groq (`langchain-groq`)                              |
-| Orchestration     | LangGraph (compiled `StateGraph` for the CRAG flow)  |
-| Vector store      | FAISS                                                |
-| Embeddings        | `sentence-transformers` (`BAAI/bge-small-en-v1.5`)   |
-| Web search        | Tavily                                               |
-| Transcript source | `youtube-transcript-api`                             |
-| Structured output | Pydantic v2 (`with_structured_output`)               |
+```text
+YouTube Transcript
+        │
+        ▼
+   Text Chunks
+        │
+        ▼
+   Embeddings
+        │
+        ▼
+      FAISS
+        │
+        ▼
+   MMR Retrieval
+        │
+        ▼
+ Top-K Documents
+```
 
-## Getting Started
+---
 
-### Prerequisites
+### 2️⃣ Evaluate
 
-- Python 3.10+
-- A [Groq API key](https://console.groq.com)
-- A [Tavily API key](https://tavily.com)
+Each retrieved document is independently evaluated by the LLM.
 
-### Installation
+The model produces a relevance score:
+
+```text
+0.0 ─────────────────────────────── 1.0
+│                                    │
+Irrelevant                        Relevant
+```
+
+---
+
+### 3️⃣ Decide
+
+Two configurable thresholds determine the CRAG decision.
+
+```text
+Score > Upper Threshold
+        │
+        ▼
+    🟢 CORRECT
+
+
+Lower < Score < Upper
+        │
+        ▼
+    🟡 AMBIGUOUS
+
+
+Score < Lower Threshold
+        │
+        ▼
+    🔴 INCORRECT
+```
+
+---
+
+### 4️⃣ Refine
+
+Relevant transcript context is split into individual sentences.
+
+The LLM filters out sentences that aren't useful for answering the question.
+
+```text
+Retrieved Context
+       │
+       ▼
+Split into sentences
+       │
+       ▼
+LLM relevance filtering
+       │
+       ▼
+Relevant sentences only
+```
+
+This keeps unnecessary transcript information out of the final prompt.
+
+---
+
+### 5️⃣ Generate
+
+The final response is generated using:
+
+* 📄 Refined context
+* 🌐 Web results when required
+* 🧠 Conversation history
+* ❓ User's current question
+
+---
+
+# 🏗️ Architecture
+
+ButterCup originally started as a single **~460-line Streamlit script** containing:
+
+* UI code
+* Prompts
+* LLM calls
+* Retrieval logic
+* Progress indicators
+* Application logic
+
+The project has since been refactored into separate modules based on responsibility.
+
+### 🎯 Separation of Concerns
+
+Only:
+
+```text
+app.py
+```
+
+imports Streamlit.
+
+The CRAG and supporting components are plain Python modules.
+
+This makes the system easier to:
+
+* 🧪 Test
+* ♻️ Reuse
+* 💻 Run from a CLI
+* 🌐 Wrap with an API
+* 🔧 Modify independently
+
+---
+
+# 🛠️ Tech Stack
+
+| Layer                | Technology               |
+| -------------------- | ------------------------ |
+| 🎨 UI                | Streamlit                |
+| 🤖 LLM               | Groq + `langchain-groq`  |
+| 🔄 Orchestration     | LangGraph                |
+| 🗃️ Vector Store     | FAISS                    |
+| 🧮 Embeddings        | Sentence Transformers    |
+| 🔤 Embedding Model   | `BAAI/bge-small-en-v1.5` |
+| 🌐 Web Search        | Tavily                   |
+| 🎥 Transcript        | `youtube-transcript-api` |
+| 📦 Structured Output | Pydantic v2              |
+| 🧠 RAG               | Corrective RAG (CRAG)    |
+
+---
+
+# 🚀 Getting Started
+
+## 📋 Prerequisites
+
+Make sure you have:
+
+* 🐍 Python **3.10+**
+* 🔑 Groq API key
+* 🔑 Tavily API key
+
+---
+
+## 📥 Installation
+
+Clone the repository:
 
 ```bash
 git clone https://github.com/<your-username>/ButterCup.git
 cd ButterCup
+```
+
+Install dependencies:
+
+```bash
 pip install -r requirements.txt
 ```
 
-### Configure secrets
+---
+
+## 🔐 Configure API Keys
+
+Copy the example secrets file:
 
 ```bash
 cp .streamlit/secrets.toml.example .streamlit/secrets.toml
 ```
 
-Then edit `.streamlit/secrets.toml`:
+Then add your keys:
 
 ```toml
 GROQ_API_KEY = "your-groq-api-key-here"
 TAVILY_API_KEY = "your-tavily-api-key-here"
 ```
 
-> `.streamlit/secrets.toml` and `buttercup/secrets.toml` are already listed
-> in `.gitignore` — never commit real keys.
+> ⚠️ **Never commit your actual API keys.**
 
-### Run it
+The following files are already ignored by Git:
+
+```text
+.streamlit/secrets.toml
+buttercup/secrets.toml
+```
+
+---
+
+## ▶️ Run the Application
 
 ```bash
 streamlit run app.py
 ```
 
-## Configuration
+The application will start locally and Streamlit will provide the URL in the terminal.
 
-All tunables live in `buttercup/config.py`, with the CRAG thresholds
-overridable via environment variables:
+---
 
-| Setting                 | Default | Description                                                        |
-|--------------------------|---------|----------------------------------------------------------------------|
-| `CRAG_UPPER_THRESHOLD`  | `0.7`   | A chunk scoring above this alone justifies a `CORRECT` verdict.     |
-| `CRAG_LOWER_THRESHOLD`  | `0.3`   | Chunks scoring below this are treated as irrelevant.                |
-| `retriever_k`           | `4`     | Number of chunks retrieved per question.                            |
-| `memory_max_messages`   | `12`    | Number of past chat messages kept as conversational context.        |
+# ⚙️ Configuration
 
-## Project Structure
+Configuration is centralized in:
 
+```text
+buttercup/config.py
 ```
+
+### CRAG Configuration
+
+| Setting                | Default | Description                                      |
+| ---------------------- | ------: | ------------------------------------------------ |
+| `CRAG_UPPER_THRESHOLD` |   `0.7` | Score above this can produce a `CORRECT` verdict |
+| `CRAG_LOWER_THRESHOLD` |   `0.3` | Scores below this are treated as irrelevant      |
+| `retriever_k`          |     `4` | Number of chunks retrieved per question          |
+| `memory_max_messages`  |    `12` | Number of previous messages retained             |
+
+---
+
+# 📁 Project Structure
+
+```text
 buttercup_project/
-├── app.py                      # Streamlit UI only — no prompts/LLM logic
-├── requirements.txt
-├── .streamlit/secrets.toml.example
-└── buttercup/
-    ├── config.py                # every tunable constant + secret lookup
-    ├── schemas.py                # pydantic structured-output models + CRAGState
-    ├── youtube_service.py        # URL parsing, video metadata, transcript fetch
-    ├── transcript_processor.py   # translation + cleanup
-    ├── summarizer.py             # fact extraction + summary generation
-    ├── vectorstore_builder.py    # FAISS retriever construction
-    ├── memory_store.py           # conversation memory wrapper
-    └── crag/                     # the Corrective RAG graph, one node per file
-        ├── grading.py             # retrieve + relevance-eval nodes
-        ├── refine.py              # sentence decomposition + filtering
-        ├── web_search.py          # query rewrite + Tavily search nodes
-        ├── generate.py            # history-aware answer generation
-        └── graph.py               # wires nodes into a compiled StateGraph
+│
+├── 📄 app.py
+│   └── Streamlit UI only
+│
+├── 📄 requirements.txt
+│
+├── 📁 .streamlit/
+│   └── secrets.toml.example
+│
+└── 📁 buttercup/
+    │
+    ├── ⚙️ config.py
+    │   └── Tunable constants + secret lookup
+    │
+    ├── 📦 schemas.py
+    │   └── Pydantic models + CRAGState
+    │
+    ├── 🎥 youtube_service.py
+    │   └── URL parsing + metadata + transcript fetching
+    │
+    ├── 📝 transcript_processor.py
+    │   └── Translation + transcript cleanup
+    │
+    ├── 🧠 summarizer.py
+    │   └── Fact extraction + summary generation
+    │
+    ├── 🗃️ vectorstore_builder.py
+    │   └── FAISS retriever construction
+    │
+    ├── 💾 memory_store.py
+    │   └── Conversation memory wrapper
+    │
+    └── 📁 crag/
+        │
+        ├── 🔍 grading.py
+        │   └── Retrieval + relevance evaluation
+        │
+        ├── ✂️ refine.py
+        │   └── Sentence decomposition + filtering
+        │
+        ├── 🌐 web_search.py
+        │   └── Query rewriting + Tavily search
+        │
+        ├── ✨ generate.py
+        │   └── History-aware answer generation
+        │
+        └── 🔗 graph.py
+            └── Compiled LangGraph StateGraph
 ```
 
-## Design Notes
+---
 
-- **Latency trade-off**: CRAG grades every retrieved chunk with a separate
-  LLM call, then filters every refined sentence with another. With `k=4`
-  that's easily 6–10+ LLM calls per question — fine for a demo, but a
-  production deployment would benefit from batching grading calls
-  (`chain.batch(...)`) or grading concatenated chunks in one call.
-- **Structured output**: `with_structured_output` requires a Groq model
-  that supports tool/function calling.
-- **Tavily**: `TavilySearchResults` is community-maintained and slated for
-  deprecation upstream in favor of `langchain-tavily`; swapping is a
-  one-line change in `buttercup/crag/web_search.py`.
+# 🧠 Design Notes
 
-## Roadmap
+## ⏱️ Latency Trade-off
 
-- [ ] Batch/parallelize CRAG grading calls to cut per-question latency
-- [ ] Swap `TavilySearchResults` for `langchain-tavily`
-- [ ] Add automated tests for the grading and refine nodes
-- [ ] Support multi-video sessions (chat across more than one video at once)
+CRAG evaluates every retrieved chunk using a separate LLM call and then performs additional filtering during refinement.
 
+With:
+
+```text
+retriever_k = 4
+```
+
+a single question can require approximately:
+
+```text
+6–10+ LLM calls
+```
+
+This is acceptable for a demonstration, but production deployments could reduce latency through:
+
+* ⚡ Batch grading
+* 🔄 Parallel execution
+* 📦 Concatenated document grading
+* 🚀 Reduced refinement calls
+
+For example:
+
+```python
+chain.batch(...)
+```
+
+could be used to process multiple grading requests together.
+
+---
+
+## 📦 Structured Output
+
+ButterCup uses:
+
+```python
+with_structured_output(...)
+```
+
+to obtain predictable structured responses from the LLM.
+
+This requires a Groq model that supports tool/function calling.
+
+---
+
+## 🌐 Tavily Integration
+
+The current implementation uses:
+
+```text
+TavilySearchResults
+```
+
+from the LangChain community integration.
+
+The project can be migrated to the newer:
+
+```text
+langchain-tavily
+```
+
+integration by updating the web-search implementation.
+
+---
+
+# 🗺️ Roadmap
+
+* [ ] ⚡ Batch CRAG grading calls
+* [ ] 🔄 Parallelize independent CRAG operations
+* [ ] 🌐 Migrate to `langchain-tavily`
+* [ ] 🧪 Add automated tests
+* [ ] 🎥 Support multiple videos in one session
+* [ ] 💬 Enable cross-video conversations
+* [ ] 🚀 Further reduce CRAG latency
+* [ ] 📊 Add evaluation metrics for retrieval quality
+
+---
+
+# 🔮 Future Improvements
+
+Potential future improvements include:
+
+### 📊 RAG Evaluation
+
+Add metrics such as:
+
+* Retrieval precision
+* Retrieval recall
+* Answer faithfulness
+* Context relevance
+* Answer relevance
+
+### ⚡ Performance Optimization
+
+Reduce the number of LLM calls through:
+
+* Batched grading
+* Parallel execution
+* Smarter retrieval
+* Cached evaluations
+
+### 🎥 Multi-Video Knowledge
+
+Allow users to upload or analyze multiple videos and ask questions across all of them.
+
+Example:
+
+```text
+Video A ──┐
+Video B ──┼──► Shared Vector Store ──► CRAG ──► Answer
+Video C ──┘
+```
+
+---
+
+# ⭐ Why ButterCup?
+
+ButterCup goes beyond a traditional YouTube summarizer.
+
+It combines:
+
+```text
+🎥 YouTube Video
+       ↓
+📝 Transcript
+       ↓
+🧮 Embeddings
+       ↓
+🗃️ FAISS Retrieval
+       ↓
+🧠 LLM Relevance Grading
+       ↓
+✂️ Context Refinement
+       ↓
+🌐 Web Fallback
+       ↓
+💬 Conversational Answer
+```
+
+The key idea is simple:
+
+> **Use the video's knowledge when it is relevant. Search the web when it isn't.**
+
+---
+
+# 🧈 Built With
+
+<p align="center">
+
+**LangGraph • Groq • FAISS • Tavily • Streamlit • Python**
+
+</p>
+
+<p align="center">
+  🎥 Video → 🧠 Knowledge → 💬 Conversation
+</p>
+
+---
+
+## 👨‍💻 Author
+
+**Sourashish Das**
+
+Built as an exploration of **Generative AI, RAG, LangGraph orchestration, LLM-based evaluation, and agentic workflows.**
+
+---
+
+````
+
+### A couple of things I'd recommend before you push it
+
+**1. Add a screenshot of the actual ButterCup UI.**  
+This is probably the single biggest improvement for a GitHub portfolio README. Put it directly below the Overview:
+
+```markdown
+## 🖥️ Demo
+
+![ButterCup Demo](assets/demo.png)
+````
+
+and keep the screenshot at:
+
+```text
+ButterCup/
+├── assets/
+│   └── demo.png
+├── app.py
+└── README.md
+```
+
+**2. If you have a deployed version**, add this near the top:
+
+```markdown
+## 🚀 Live Demo
+
+👉 **[Try ButterCup](YOUR_DEPLOYED_URL)**
+```
+
+**3. Don't use the `<your-username>` URL** if you're using your actual repository. Replace it with your GitHub repo URL.
