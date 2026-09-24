@@ -265,6 +265,7 @@ else:
             st.stop()
 
         VERDICT_BADGE = {
+            "DIRECT": "💬 Answered directly — no retrieval needed",
             "CORRECT": "🟢 Answered from the video transcript",
             "INCORRECT": "🌐 Video didn't cover this — answered from a live web search",
             "AMBIGUOUS": "🟡 Mixed signal — combined video transcript + web search",

@@ -29,7 +29,7 @@ class Settings:
     groq_api_key: str = field(default_factory=lambda: _get_secret("GROQ_API_KEY"))
     groq_model: str = field(
         default_factory=lambda: os.environ.get(
-            "GROQ_MODEL", "openai/gpt-oss-20b"
+            "GROQ_MODEL", "openai/gpt-oss-safeguard-20b"
         )
     )
 

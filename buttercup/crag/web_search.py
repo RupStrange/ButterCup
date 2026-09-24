@@ -9,6 +9,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 
 from ..schemas import CRAGState, WebQuery
+from .json_llm import call_for_json
 
 _REWRITE_PROMPT = ChatPromptTemplate.from_messages(
     [
@@ -28,10 +29,11 @@ _REWRITE_PROMPT = ChatPromptTemplate.from_messages(
 
 
 def make_rewrite_query_node(llm: BaseChatModel) -> Callable[[CRAGState], dict]:
-    rewrite_chain = _REWRITE_PROMPT | llm.with_structured_output(WebQuery)
-
+    # See json_llm.py for why we don't use llm.with_structured_output on Groq.
     def rewrite_query_node(state: CRAGState) -> dict:
-        result: WebQuery = rewrite_chain.invoke({"question": state["question"]})
+        result: WebQuery = call_for_json(
+            llm, _REWRITE_PROMPT, {"question": state["question"]}, WebQuery
+        )
         return {"web_query": result.query}
 
     return rewrite_query_node

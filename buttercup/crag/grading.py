@@ -8,6 +8,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.vectorstores import VectorStoreRetriever
 
 from ..schemas import CRAGState, DocEvalScore
+from .json_llm import call_for_json
 
 _DOC_EVAL_PROMPT = ChatPromptTemplate.from_messages(
     [
@@ -15,12 +16,14 @@ _DOC_EVAL_PROMPT = ChatPromptTemplate.from_messages(
             "system",
             "You are a strict retrieval evaluator for RAG.\n"
             "You will be given ONE retrieved chunk and a question.\n"
-            "Return a relevance score in [0.0, 1.0].\n"
+            "Score how relevant the chunk is in [0.0, 1.0].\n"
             "- 1.0: chunk alone is sufficient to answer fully/mostly\n"
             "- 0.0: chunk is irrelevant\n"
             "Be conservative with high scores.\n"
-            "Also return a short reason.\n"
-            "Output JSON only.",
+            "Respond with ONLY a JSON object with exactly two keys:\n"
+            '  "score": a number between 0.0 and 1.0\n'
+            '  "reason": a short string justifying the score\n'
+            "No other text, no markdown fences.",
         ),
         ("human", "Question: {question}\n\nChunk:\n{chunk}"),
     ]
@@ -48,7 +51,11 @@ def make_eval_each_doc_node(
       INCORRECT - every chunk scored below `lower_threshold`
       AMBIGUOUS - anything in between
     """
-    eval_chain = _DOC_EVAL_PROMPT | llm.with_structured_output(DocEvalScore)
+    # See json_llm.py: llm.with_structured_output (any method) routes
+    # through Groq's tool-calling machinery, and gpt-oss reasoning models
+    # intermittently hallucinate a tool call even when tool_choice="none",
+    # which Groq then rejects with a tool_use_failed 400. call_for_json
+    # asks for plain-text JSON and parses it ourselves instead.
 
     def eval_each_doc_node(state: CRAGState) -> dict:
         question = state["question"]
@@ -56,10 +63,19 @@ def make_eval_each_doc_node(
         good_docs = []
 
         for doc in state["docs"]:
-            result: DocEvalScore = eval_chain.invoke({"question": question, "chunk": doc.page_content})
+            result: DocEvalScore = call_for_json(
+                llm, _DOC_EVAL_PROMPT, {"question": question, "chunk": doc.page_content}, DocEvalScore
+            )
             scores.append(result.score)
             if result.score > lower_threshold:
                 good_docs.append(doc)
+
+        if not scores:
+            return {
+                "good_docs": [],
+                "verdict": "INCORRECT",
+                "reason": "No chunks were retrieved.",
+            }
 
         if any(s > upper_threshold for s in scores):
             return {
@@ -68,7 +84,7 @@ def make_eval_each_doc_node(
                 "reason": f"At least one retrieved chunk scored > {upper_threshold}.",
             }
 
-        if scores and all(s < lower_threshold for s in scores):
+        if all(s < lower_threshold for s in scores):
             return {
                 "good_docs": [],
                 "verdict": "INCORRECT",

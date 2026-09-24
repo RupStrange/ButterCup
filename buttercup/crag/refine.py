@@ -16,14 +16,18 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from ..config import settings
 from ..schemas import CRAGState, KeepOrDrop
+from .json_llm import call_for_json
 
 _FILTER_PROMPT = ChatPromptTemplate.from_messages(
     [
         (
             "system",
             "You are a strict relevance filter.\n"
-            "Return keep=true only if the sentence directly helps answer the question.\n"
-            "Use ONLY the sentence. Output JSON only.",
+            "Decide whether the sentence directly helps answer the question.\n"
+            "Use ONLY the sentence.\n"
+            "Respond with ONLY a JSON object with exactly one key:\n"
+            '  "keep": true or false\n'
+            "No other text, no markdown fences.",
         ),
         ("human", "Question: {question}\n\nSentence:\n{sentence}"),
     ]
@@ -46,7 +50,7 @@ def make_refine_node(llm: BaseChatModel) -> Callable[[CRAGState], dict]:
       INCORRECT -> web_docs only
       AMBIGUOUS -> good_docs + web_docs
     """
-    filter_chain = _FILTER_PROMPT | llm.with_structured_output(KeepOrDrop)
+    # See json_llm.py for why we don't use llm.with_structured_output on Groq.
 
     def refine_node(state: CRAGState) -> dict:
         question = state["question"]
@@ -64,7 +68,9 @@ def make_refine_node(llm: BaseChatModel) -> Callable[[CRAGState], dict]:
 
         kept: List[str] = []
         for sentence in strips:
-            decision: KeepOrDrop = filter_chain.invoke({"question": question, "sentence": sentence})
+            decision: KeepOrDrop = call_for_json(
+                llm, _FILTER_PROMPT, {"question": question, "sentence": sentence}, KeepOrDrop
+            )
             if decision.keep:
                 kept.append(sentence)
 

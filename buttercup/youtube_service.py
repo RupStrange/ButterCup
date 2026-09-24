@@ -22,15 +22,35 @@ PREFERRED_TRANSCRIPT_LANGUAGES = ["en", "hi", "bn", "ar", "zh", "fr", "de", "es"
 
 
 def extract_video_id(url: str) -> Optional[str]:
-    """Pull the 11-char video ID out of a youtube.com or youtu.be URL."""
+    """Pull the 11-char video ID out of a youtube.com or youtu.be URL.
+
+    Handles standard watch URLs, youtu.be short links, and the
+    /shorts/, /embed/, /v/, /live/ path formats (with or without a
+    "www."/"m." subdomain, and on youtube-nocookie.com).
+    """
     if not url:
         return None
     parsed = urlparse(url)
     hostname = str(parsed.hostname or "")
-    if "youtube.com" in hostname:
-        return parse_qs(parsed.query).get("v", [None])[0]
+
     if hostname == "youtu.be":
-        return parsed.path.lstrip("/")[:11] or None
+        video_id = parsed.path.lstrip("/")[:11]
+        return video_id or None
+
+    if hostname.endswith("youtube.com") or hostname.endswith("youtube-nocookie.com"):
+        # Standard watch URL: /watch?v=VIDEO_ID
+        video_id = parse_qs(parsed.query).get("v", [None])[0]
+        if video_id:
+            return video_id[:11]
+
+        # Path-based formats: /shorts/VIDEO_ID, /embed/VIDEO_ID, /v/VIDEO_ID, /live/VIDEO_ID
+        path_parts = [p for p in parsed.path.split("/") if p]
+        for prefix in ("shorts", "embed", "v", "live"):
+            if len(path_parts) >= 2 and path_parts[0] == prefix:
+                return path_parts[1][:11] or None
+
+        return None
+
     return None
 
 

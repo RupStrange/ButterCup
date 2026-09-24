@@ -26,6 +26,18 @@ class WebQuery(BaseModel):
     query: str
 
 
+class NeedsRetrieval(BaseModel):
+    """Structured router decision: does this question need transcript/web retrieval at all?"""
+
+    needs_retrieval: bool = Field(
+        ...,
+        description=(
+            "False for greetings, chit-chat, thanks, or questions about the assistant "
+            "itself. True for anything that needs the video's content or outside facts."
+        ),
+    )
+
+
 class CRAGState(TypedDict, total=False):
     """State threaded through every node of the Corrective RAG graph."""
 
@@ -35,7 +47,7 @@ class CRAGState(TypedDict, total=False):
     docs: List[Document]
     good_docs: List[Document]
 
-    verdict: str  # "CORRECT" | "INCORRECT" | "AMBIGUOUS"
+    verdict: str  # "DIRECT" | "CORRECT" | "INCORRECT" | "AMBIGUOUS"
     reason: str
 
     strips: List[str]

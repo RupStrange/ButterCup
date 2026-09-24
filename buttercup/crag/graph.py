@@ -11,6 +11,7 @@ from ..schemas import CRAGState
 from .generate import make_generate_node
 from .grading import make_eval_each_doc_node, make_retrieve_node
 from .refine import make_refine_node
+from .router import make_route_node, route_decision
 from .web_search import make_rewrite_query_node, make_web_search_node
 
 
@@ -30,8 +31,10 @@ def build_crag_graph(
     """
     Build and compile the Corrective RAG graph for a specific video's retriever.
 
-    retrieve -> eval_each_doc -> [CORRECT] -> refine -> generate
-                              -> [INCORRECT/AMBIGUOUS] -> rewrite_query -> web_search -> refine -> generate
+    route -> [DIRECT, e.g. greetings/chit-chat] -> generate
+          -> [needs retrieval] -> retrieve -> eval_each_doc
+                                            -> [CORRECT] -> refine -> generate
+                                            -> [INCORRECT/AMBIGUOUS] -> rewrite_query -> web_search -> refine -> generate
     """
     tavily_api_key = tavily_api_key or settings.tavily_api_key
     upper_threshold = upper_threshold if upper_threshold is not None else settings.crag_upper_threshold
@@ -40,6 +43,7 @@ def build_crag_graph(
 
     graph = StateGraph(CRAGState)
 
+    graph.add_node("route", make_route_node(llm))
     graph.add_node("retrieve", make_retrieve_node(retriever))
     graph.add_node("eval_each_doc", make_eval_each_doc_node(llm, upper_threshold, lower_threshold))
     graph.add_node("rewrite_query", make_rewrite_query_node(llm))
@@ -47,7 +51,12 @@ def build_crag_graph(
     graph.add_node("refine", make_refine_node(llm))
     graph.add_node("generate", make_generate_node(llm))
 
-    graph.add_edge(START, "retrieve")
+    graph.add_edge(START, "route")
+    graph.add_conditional_edges(
+        "route",
+        route_decision,
+        {"retrieve": "retrieve", "generate": "generate"},
+    )
     graph.add_edge("retrieve", "eval_each_doc")
     graph.add_conditional_edges(
         "eval_each_doc",
