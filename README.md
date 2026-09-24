@@ -169,7 +169,7 @@ Planned improvements include:
 
 ## 👨‍💻 Built By
 
-**Sourashish Das**
+**Sourasish Das**
 
 Built as a hands-on exploration of **Generative AI, RAG, and intelligent AI applications.**
 
