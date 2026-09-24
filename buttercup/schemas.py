@@ -14,10 +14,35 @@ class DocEvalScore(BaseModel):
     reason: str = Field(..., description="Short justification for the score.")
 
 
+class DocEvalItem(DocEvalScore):
+    """One chunk's grade within a batched eval_each_doc call, tagged with its position."""
+
+    index: int = Field(..., description="0-based position of this chunk in the input list.")
+
+
+class DocEvalBatch(BaseModel):
+    """Structured response for grading every retrieved chunk in a single LLM call."""
+
+    evaluations: List[DocEvalItem]
+
+
 class KeepOrDrop(BaseModel):
     """Structured keep/drop decision made while refining context sentence-by-sentence."""
 
     keep: bool
+
+
+class SentenceDecision(BaseModel):
+    """One sentence's keep/drop decision within a batched refine call, tagged with its position."""
+
+    index: int = Field(..., description="0-based position of this sentence in the input list.")
+    keep: bool
+
+
+class SentenceFilterBatch(BaseModel):
+    """Structured response for filtering every candidate sentence in a single LLM call."""
+
+    decisions: List[SentenceDecision]
 
 
 class WebQuery(BaseModel):

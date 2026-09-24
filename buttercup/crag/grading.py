@@ -7,7 +7,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.vectorstores import VectorStoreRetriever
 
-from ..schemas import CRAGState, DocEvalScore
+from ..schemas import CRAGState, DocEvalBatch
 from .json_llm import call_for_json
 
 _DOC_EVAL_PROMPT = ChatPromptTemplate.from_messages(
@@ -15,19 +15,26 @@ _DOC_EVAL_PROMPT = ChatPromptTemplate.from_messages(
         (
             "system",
             "You are a strict retrieval evaluator for RAG.\n"
-            "You will be given ONE retrieved chunk and a question.\n"
-            "Score how relevant the chunk is in [0.0, 1.0].\n"
+            "You will be given a question and a numbered list of retrieved chunks.\n"
+            "Score EACH chunk's relevance independently, in [0.0, 1.0].\n"
             "- 1.0: chunk alone is sufficient to answer fully/mostly\n"
             "- 0.0: chunk is irrelevant\n"
             "Be conservative with high scores.\n"
-            "Respond with ONLY a JSON object with exactly two keys:\n"
+            "Respond with ONLY a JSON object with exactly one key, \"evaluations\", whose "
+            "value is a JSON array with one entry per chunk, in the same order, each with "
+            "exactly three keys:\n"
+            '  "index": the chunk\'s 0-based position in the list\n'
             '  "score": a number between 0.0 and 1.0\n'
             '  "reason": a short string justifying the score\n'
             "No other text, no markdown fences.",
         ),
-        ("human", "Question: {question}\n\nChunk:\n{chunk}"),
+        ("human", "Question: {question}\n\nChunks:\n{chunks}"),
     ]
 )
+
+
+def _format_chunks(docs: List) -> str:
+    return "\n\n".join(f"[{i}]\n{doc.page_content}" for i, doc in enumerate(docs))
 
 
 def make_retrieve_node(retriever: VectorStoreRetriever) -> Callable[[CRAGState], dict]:
@@ -59,23 +66,25 @@ def make_eval_each_doc_node(
 
     def eval_each_doc_node(state: CRAGState) -> dict:
         question = state["question"]
-        scores: List[float] = []
-        good_docs = []
+        docs = state["docs"]
 
-        for doc in state["docs"]:
-            result: DocEvalScore = call_for_json(
-                llm, _DOC_EVAL_PROMPT, {"question": question, "chunk": doc.page_content}, DocEvalScore
-            )
-            scores.append(result.score)
-            if result.score > lower_threshold:
-                good_docs.append(doc)
-
-        if not scores:
+        if not docs:
             return {
                 "good_docs": [],
                 "verdict": "INCORRECT",
                 "reason": "No chunks were retrieved.",
             }
+
+        # One call grades every chunk at once instead of one call per chunk.
+        batch: DocEvalBatch = call_for_json(
+            llm, _DOC_EVAL_PROMPT, {"question": question, "chunks": _format_chunks(docs)}, DocEvalBatch
+        )
+
+        # Map back by index; default any chunk the model skipped to 0.0 so a
+        # partial/malformed batch degrades gracefully instead of crashing.
+        score_by_index = {item.index: item.score for item in batch.evaluations if 0 <= item.index < len(docs)}
+        scores: List[float] = [score_by_index.get(i, 0.0) for i in range(len(docs))]
+        good_docs = [doc for doc, score in zip(docs, scores) if score > lower_threshold]
 
         if any(s > upper_threshold for s in scores):
             return {
